@@ -458,29 +458,28 @@ function Collapse({
   children,
   duration = 260
 }) {
-  const [mounted, setMounted] = useState(open);
   const [maxH, setMaxH] = useState(open ? "none" : "0px");
-  const [fade, setFade] = useState(open ? 1 : 0);
   const innerRef = useRef(null);
+  const firstRun = useRef(true);
   useEffect(() => {
-    if (open) setMounted(true);
-  }, [open]);
-  useEffect(() => {
-    if (!mounted) return;
     const el = innerRef.current;
     if (!el) return;
-    let raf1, raf2;
-    let timer;
+
+    // Don't animate the panel's very first render — only actual open/close toggles
+    // afterwards should move it.
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    let raf1, raf2, timer;
     if (open) {
       // measure real content height and animate 0 -> that height, so the panel
-      // itself visibly grows/shrinks (not just its content fading in place).
+      // itself visibly grows (not just its content fading in place).
       const target = el.scrollHeight;
       setMaxH("0px");
-      setFade(0);
       raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => {
           setMaxH(target + "px");
-          setFade(1);
         });
       });
       // release to "none" afterwards so dynamically-growing content (e.g. adding
@@ -489,28 +488,23 @@ function Collapse({
     } else {
       const current = el.scrollHeight;
       setMaxH(current + "px");
-      setFade(1);
       raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => {
           setMaxH("0px");
-          setFade(0);
         });
       });
-      timer = setTimeout(() => setMounted(false), duration);
     }
     return () => {
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
       clearTimeout(timer);
     };
-    // eslint-disable-next-line
-  }, [open, mounted]);
-  if (!mounted) return null;
+  }, [open]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       overflow: "hidden",
       maxHeight: maxH,
-      opacity: fade,
+      opacity: open ? 1 : 0,
       transition: `max-height ${duration}ms cubic-bezier(0.22,1,0.36,1), opacity ${duration}ms ease`
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -1771,10 +1765,18 @@ function LeavesPanel({
   }));
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
-  const changeMonth = delta => setViewDate(d => new Date(d.getFullYear(), d.getMonth() + delta, 1));
+  const monthDirRef = useRef(1);
+  const changeMonth = delta => {
+    monthDirRef.current = delta;
+    setViewDate(d => new Date(d.getFullYear(), d.getMonth() + delta, 1));
+  };
   const now = new Date();
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
-  const goToCurrentMonth = () => setViewDate(new Date());
+  const goToCurrentMonth = () => {
+    const target = new Date();
+    monthDirRef.current = target.getFullYear() * 12 + target.getMonth() >= year * 12 + month ? 1 : -1;
+    setViewDate(target);
+  };
   const exceptionalEntries = [];
   soldiers.forEach(s => {
     (s.leaves || []).forEach(l => {
@@ -1837,7 +1839,8 @@ function LeavesPanel({
     key: `${year}-${month}`,
     style: {
       textAlign: "center",
-      animation: "dateChange 200ms ease"
+      animation: "dateChange 320ms cubic-bezier(0.22,1,0.36,1)",
+      "--slide-dx": monthDirRef.current > 0 ? "-12px" : "12px"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2128,13 +2131,16 @@ function DutyRosterApp() {
     }, 300);
     // eslint-disable-next-line
   }, [dayData]);
+  const dayDirRef = useRef(1);
   const changeDay = delta => {
+    dayDirRef.current = delta;
     const nd = addDays(dateObj, delta);
     setDateObj(nd);
     loadDay(nd);
     prefetchHistory(nd);
   };
   const goToday = () => {
+    dayDirRef.current = new Date() >= dateObj ? 1 : -1;
     const nd = new Date();
     setDateObj(nd);
     loadDay(nd);
@@ -2367,7 +2373,7 @@ function DutyRosterApp() {
         @keyframes sheetBackdropIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes sheetBackdropOut { from { opacity: 1; } to { opacity: 0; } }
         @keyframes sheetSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        @keyframes dateChange { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes dateChange { from { opacity: 0; transform: translateX(var(--slide-dx, 10px)); } to { opacity: 1; transform: translateX(0); } }
         @keyframes rowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
         button { transition: transform 120ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease; }
         button:active { transform: scale(0.96); }
@@ -2416,7 +2422,8 @@ function DutyRosterApp() {
     style: {
       textAlign: "center",
       flex: 1,
-      animation: "dateChange 200ms ease"
+      animation: "dateChange 320ms cubic-bezier(0.22,1,0.36,1)",
+      "--slide-dx": dayDirRef.current > 0 ? "-12px" : "12px"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2440,9 +2447,12 @@ function DutyRosterApp() {
   }, "الرجوع لليوم")), /*#__PURE__*/React.createElement("button", {
     onClick: () => changeDay(1),
     style: navBtnStyle
-  }, "›")), isViewingActiveDay && /*#__PURE__*/React.createElement(DutyClock, {
+  }, "›")), /*#__PURE__*/React.createElement(Collapse, {
+    open: isViewingActiveDay,
+    duration: 280
+  }, /*#__PURE__*/React.createElement(DutyClock, {
     now: now
-  }), /*#__PURE__*/React.createElement(BackupPanel, {
+  })), /*#__PURE__*/React.createElement(BackupPanel, {
     onExport: exportData,
     onImportFile: importData,
     fileInputRef: fileInputRef
